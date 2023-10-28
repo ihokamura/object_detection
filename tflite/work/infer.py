@@ -27,6 +27,8 @@ def infer(interpreter, input_image):
     input_index = input_detail['index']
     _, input_width, input_height, _ = input_detail['shape']
     input_data = convert_image_to_input(input_image, input_width, input_height)
+    input_scale, input_zero_point = input_detail['quantization']
+    input_data = (input_data / input_scale + input_zero_point).astype(np.uint8)
     interpreter.set_tensor(input_index, input_data)
     interpreter.invoke()
 
@@ -50,25 +52,32 @@ def draw_label(draw, xmin, ymin, label, box_color=(255, 255, 255), font_color=(0
 
 def draw_detection_result(draw, image_width, image_height, detection_class, detection_score, detection_box, id_to_category):
     ymin, xmin, ymax, xmax = detection_box
-    ymin = int(ymin * image_height)
-    xmin = int(xmin * image_width)
-    ymax = int(ymax * image_height)
-    xmax = int(xmax * image_width)
+    if xmin < xmax and ymin < ymax:
+        ymin = int(ymin * image_height)
+        xmin = int(xmin * image_width)
+        ymax = int(ymax * image_height)
+        xmax = int(xmax * image_width)
 
-    box_color = 'red'
-    font_color = 'black'
-    category = id_to_category[int(detection_class) + 1]
-    label = category + f':{detection_score:.2f}'
-
-    draw_box(draw, xmin, ymin, xmax, ymax, box_color)
-    draw_label(draw, xmin, ymin, label, box_color, font_color)
+        box_color = 'red'
+        font_color = 'black'
+        category = id_to_category[int(detection_class) + 1]
+        label = category + f':{detection_score:.2f}'
+        draw_box(draw, xmin, ymin, xmax, ymax, box_color)
+        draw_label(draw, xmin, ymin, label, box_color, font_color)
 
 
 def get_infer_result(interpreter, input_image, id_to_category, score_threshold=0.5):
+    def get_adjusted_output(output_detail, dtype=np.float32):
+        scale, zero_point = output_detail['quantization']
+        raw_output = interpreter.get_tensor(output_detail['index'])[0]
+        output = (raw_output - zero_point) * scale
+        return output.astype(dtype)
+
     output_details = interpreter.get_output_details()
-    detection_classes = interpreter.get_tensor(output_details[3]['index'])[0]
-    detection_scores = interpreter.get_tensor(output_details[0]['index'])[0]
-    detection_boxes = interpreter.get_tensor(output_details[1]['index'])[0]
+    detection_classes = np.round(get_adjusted_output(
+        output_details[3])).astype(np.int32)
+    detection_scores = get_adjusted_output(output_details[0])
+    detection_boxes = get_adjusted_output(output_details[1])
     output_image = input_image
     draw = ImageDraw.Draw(output_image)
     image_width, image_height = output_image.size
