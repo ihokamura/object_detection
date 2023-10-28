@@ -5,7 +5,7 @@ import tflite_runtime.interpreter as tflite
 from PIL import Image, ImageDraw, ImageFont
 
 
-def load_mapping(category_file='coco_category.txt'):
+def load_mapping(category_file):
     id_to_category = {}
     with open(category_file, 'r') as file:
         for line in file:
@@ -19,18 +19,6 @@ def convert_image_to_input(image, input_width, input_height):
     input_data = np.array(resized_image, dtype=np.float32)[np.newaxis, ...]
     input_data = input_data * (2.0 / 255.0) - 1.0
     return input_data
-
-
-def infer(interpreter, input_image):
-    interpreter.allocate_tensors()
-    input_detail = interpreter.get_input_details()[0]
-    input_index = input_detail['index']
-    _, input_width, input_height, _ = input_detail['shape']
-    input_data = convert_image_to_input(input_image, input_width, input_height)
-    input_scale, input_zero_point = input_detail['quantization']
-    input_data = (input_data / input_scale + input_zero_point).astype(np.uint8)
-    interpreter.set_tensor(input_index, input_data)
-    interpreter.invoke()
 
 
 def draw_box(draw, xmin, ymin, xmax, ymax, box_color=(255, 255, 255), box_width=5):
@@ -66,26 +54,51 @@ def draw_detection_result(draw, image_width, image_height, detection_class, dete
         draw_label(draw, xmin, ymin, label, box_color, font_color)
 
 
-def get_infer_result(interpreter, input_image, id_to_category, score_threshold=0.5):
-    def get_adjusted_output(output_detail, dtype=np.float32):
-        scale, zero_point = output_detail['quantization']
-        raw_output = interpreter.get_tensor(output_detail['index'])[0]
-        output = (raw_output - zero_point) * scale
-        return output.astype(dtype)
+def quantize(float_data, scale, zero_point, dtype):
+    return (float_data / scale + zero_point).astype(dtype)
 
-    output_details = interpreter.get_output_details()
-    detection_classes = np.round(get_adjusted_output(
-        output_details[3])).astype(np.int32)
-    detection_scores = get_adjusted_output(output_details[0])
-    detection_boxes = get_adjusted_output(output_details[1])
-    output_image = input_image
-    draw = ImageDraw.Draw(output_image)
-    image_width, image_height = output_image.size
-    for detection_class, detection_score, detection_box in zip(detection_classes, detection_scores, detection_boxes):
-        if detection_score >= score_threshold:
-            draw_detection_result(
-                draw, image_width, image_height, detection_class, detection_score, detection_box, id_to_category)
-    return output_image
+
+def dequantize(int_data, scale, zero_point, dtype):
+    return ((int_data - zero_point) * scale).astype(dtype)
+
+
+class Detector:
+    def __init__(self, tflite_file, category_file='coco_category.txt'):
+        self.interpreter = tflite.Interpreter(tflite_file)
+        self.id_to_category = load_mapping(category_file)
+
+    def infer(self, input_image):
+        self.interpreter.allocate_tensors()
+        input_detail = self.interpreter.get_input_details()[0]
+        input_index = input_detail['index']
+        _, input_width, input_height, _ = input_detail['shape']
+        input_data = convert_image_to_input(
+            input_image, input_width, input_height)
+        scale, zero_point = input_detail['quantization']
+        input_data = quantize(input_data, scale, zero_point, np.uint8)
+        self.interpreter.set_tensor(input_index, input_data)
+        self.interpreter.invoke()
+
+    def get_output_image(self, input_image, score_threshold=0.5):
+        def get_adjusted_output(output_detail):
+            raw_output = self.interpreter.get_tensor(output_detail['index'])[0]
+            scale, zero_point = output_detail['quantization']
+            return dequantize(raw_output, scale, zero_point, np.float32)
+
+        output_details = self.interpreter.get_output_details()
+        detection_classes = np.round(get_adjusted_output(
+            output_details[3])).astype(np.int32)
+        detection_scores = get_adjusted_output(output_details[0])
+        detection_boxes = get_adjusted_output(output_details[1])
+
+        output_image = input_image
+        draw = ImageDraw.Draw(output_image)
+        image_width, image_height = output_image.size
+        for detection_class, detection_score, detection_box in zip(detection_classes, detection_scores, detection_boxes):
+            if detection_score >= score_threshold:
+                draw_detection_result(
+                    draw, image_width, image_height, detection_class, detection_score, detection_box, self.id_to_category)
+        return output_image
 
 
 if __name__ == '__main__':
@@ -98,9 +111,8 @@ if __name__ == '__main__':
     input_image_file = args.input_image_file
     output_image_file = args.output_image_file
 
-    interpreter = tflite.Interpreter(tflite_file)
-    id_to_category = load_mapping()
+    detector = Detector(tflite_file)
     input_image = Image.open(input_image_file)
-    infer(interpreter, input_image)
-    output_image = get_infer_result(interpreter, input_image, id_to_category)
+    detector.infer(input_image)
+    output_image = detector.get_output_image(input_image)
     output_image.save(output_image_file)
