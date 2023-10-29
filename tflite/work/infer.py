@@ -114,12 +114,15 @@ if __name__ == '__main__':
     parser.add_argument('output_image_file', help='path to output image file')
     parser.add_argument('--quantization', default='none',
                         help='quantization type (none, full-integer)')
+    parser.add_argument('--score_threshold', default=0.5, type=float,
+                        help='threshold of score to show inference box')
 
     args = parser.parse_args()
     tflite_file = args.tflite_file
     input_image_file = args.input_image_file
     output_image_file = args.output_image_file
     quantization = args.quantization
+    score_threshold = args.score_threshold
     if quantization not in ('none', 'full-integer'):
         print(f'invalid argument for --quantization: {quantization:}')
         exit(1)
@@ -127,5 +130,5 @@ if __name__ == '__main__':
     detector = Detector(tflite_file, quantization)
     input_image = Image.open(input_image_file)
     detector.infer(input_image)
-    output_image = detector.get_output_image(input_image)
+    output_image = detector.get_output_image(input_image, score_threshold)
     output_image.save(output_image_file)
