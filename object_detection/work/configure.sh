@@ -1,13 +1,24 @@
 #!/bin/bash
 
 SSD_MODEL_NAME=ssd_mobilenet_v2_320x320_coco17_tpu-8
+INPUT_WIDTH=300
+INPUT_HEIGHT=300
+
 #SSD_MODEL_NAME=ssd_mobilenet_v2_fpnlite_320x320_coco17_tpu-8
+#INPUT_WIDTH=320
+#INPUT_HEIGHT=320
+
 #SSD_MODEL_NAME=ssd_mobilenet_v2_fpnlite_640x640_coco17_tpu-8
+#INPUT_WIDTH=640
+#INPUT_HEIGHT=640
+
 #SSD_MODEL_NAME=ssd_resnet152_v1_fpn_1024x1024_coco17_tpu-8
+#INPUT_WIDTH=1024
+#INPUT_HEIGHT=1024
 
-image_file=image1.jpg
+CALIBRATION_SIZE=100
 
-python3 infer.py \
-    --quantization full-integer \
-    --score_threshold 0.5 \
-    ${SSD_MODEL_NAME}.tflite images/input/${image_file} images/output/${image_file}
+export SSD_MODEL_NAME
+export INPUT_WIDTH
+export INPUT_HEIGHT
+export CALIBRATION_SIZE
