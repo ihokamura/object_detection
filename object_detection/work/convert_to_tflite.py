@@ -56,12 +56,16 @@ if __name__ == '__main__':
 
     def generate_representative_dataset():
         dataset_files = np.array(os.listdir(DATASET_DIRECTORY))
-        for dataset_file in np.random.choice(dataset_files, calibration_size):
+        dataset_files = np.random.choice(dataset_files, calibration_size)
+        print('start calibration')
+        for index, dataset_file in enumerate(dataset_files):
+            print(f'calibrating {index:}/{len(dataset_files):} ...')
             input_image = Image.open(DATASET_DIRECTORY + '/' + dataset_file)
             resized_image = input_image.resize((input_width, input_height))
             input_data = np.expand_dims(resized_image, 0).astype(np.float32)
             input_data = input_data * (2.0 / 255.0) - 1.0
             yield [input_data]
+        print('end calibration')
 
     converter = ModelConverter(saved_model, model_name, quantization)
     converter.convert()
