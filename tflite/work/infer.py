@@ -16,7 +16,7 @@ def load_mapping(category_file):
 
 def convert_image_to_input(image, input_width, input_height):
     resized_image = image.resize((input_width, input_height))
-    input_data = np.array(resized_image, dtype=np.float32)[np.newaxis, ...]
+    input_data = np.expand_dims(resized_image, 0).astype(np.float32)
     input_data = input_data * (2.0 / 255.0) - 1.0
     return input_data
 
@@ -63,8 +63,9 @@ def dequantize(int_data, scale, zero_point, dtype):
 
 
 class Detector:
-    def __init__(self, tflite_file, category_file='coco_category.txt'):
+    def __init__(self, tflite_file, quantization, category_file='coco_category.txt'):
         self.interpreter = tflite.Interpreter(tflite_file)
+        self.quantization = quantization
         self.id_to_category = load_mapping(category_file)
 
     def infer(self, input_image):
@@ -74,22 +75,27 @@ class Detector:
         _, input_width, input_height, _ = input_detail['shape']
         input_data = convert_image_to_input(
             input_image, input_width, input_height)
-        scale, zero_point = input_detail['quantization']
-        input_data = quantize(input_data, scale, zero_point, np.uint8)
+        if self.quantization == 'full-integer':
+            scale, zero_point = input_detail['quantization']
+            input_data = quantize(input_data, scale, zero_point, np.uint8)
         self.interpreter.set_tensor(input_index, input_data)
         self.interpreter.invoke()
 
     def get_output_image(self, input_image, score_threshold=0.5):
-        def get_adjusted_output(output_detail):
-            raw_output = self.interpreter.get_tensor(output_detail['index'])[0]
-            scale, zero_point = output_detail['quantization']
-            return dequantize(raw_output, scale, zero_point, np.float32)
+        def get_output_data(output_detail):
+            output_data = self.interpreter.get_tensor(
+                output_detail['index'])[0]
+            if self.quantization == 'full-integer':
+                scale, zero_point = output_detail['quantization']
+                output_data = dequantize(
+                    output_data, scale, zero_point, np.float32)
+            return output_data
 
         output_details = self.interpreter.get_output_details()
-        detection_classes = np.round(get_adjusted_output(
+        detection_classes = np.round(get_output_data(
             output_details[3])).astype(np.int32)
-        detection_scores = get_adjusted_output(output_details[0])
-        detection_boxes = get_adjusted_output(output_details[1])
+        detection_scores = get_output_data(output_details[0])
+        detection_boxes = get_output_data(output_details[1])
 
         output_image = input_image
         draw = ImageDraw.Draw(output_image)
@@ -106,12 +112,19 @@ if __name__ == '__main__':
     parser.add_argument('tflite_file', help='path to tflite file')
     parser.add_argument('input_image_file', help='path to input image file')
     parser.add_argument('output_image_file', help='path to output image file')
+    parser.add_argument('--quantization', default='none',
+                        help='quantization type (none, full-integer)')
+
     args = parser.parse_args()
     tflite_file = args.tflite_file
     input_image_file = args.input_image_file
     output_image_file = args.output_image_file
+    quantization = args.quantization
+    if quantization not in ('none', 'full-integer'):
+        print(f'invalid argument for --quantization: {quantization:}')
+        exit(1)
 
-    detector = Detector(tflite_file)
+    detector = Detector(tflite_file, quantization)
     input_image = Image.open(input_image_file)
     detector.infer(input_image)
     output_image = detector.get_output_image(input_image)
