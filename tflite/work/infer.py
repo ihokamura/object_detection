@@ -1,4 +1,5 @@
 import argparse
+import time
 
 import numpy as np
 import tflite_runtime.interpreter as tflite
@@ -79,7 +80,10 @@ class Detector:
             scale, zero_point = input_detail['quantization']
             input_data = quantize(input_data, scale, zero_point, np.uint8)
         self.interpreter.set_tensor(input_index, input_data)
+        start = time.time_ns()
         self.interpreter.invoke()
+        end = time.time_ns()
+        print(f'inference time: {(end - start) / 10**6:.2f} ms')
 
     def get_output_image(self, input_image, score_threshold=0.5):
         def get_output_data(output_detail):
