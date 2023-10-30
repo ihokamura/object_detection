@@ -12,7 +12,6 @@ class ModelConverter:
     def __init__(self, saved_model, model_name, quantization):
         converter = tf.lite.TFLiteConverter.from_saved_model(saved_model)
         if quantization == 'full-integer':
-            converter.experimental_new_converter = True
             converter.optimizations = [tf.lite.Optimize.DEFAULT]
             converter.target_spec.supported_ops = [
                 tf.lite.OpsSet.TFLITE_BUILTINS_INT8]
